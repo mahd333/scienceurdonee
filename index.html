@@ -1,10 +1,272 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>scienceurdone</title>
+  <meta charset="utf-8" />
+  <title>scienceurdone shooter</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    /* full screen centered canvas */
+    html,body { height:100%; margin:0; background:#0b1220; color:#fff; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; }
+    .wrap { display:flex; align-items:center; justify-content:center; height:100%; }
+    canvas { background: linear-gradient(#071026,#081026 60%); border:4px solid #0e2030; border-radius:8px; display:block; }
+    #ui { position:fixed; left:10px; top:10px; font-weight:600; }
+    #message { position:fixed; left:50%; transform:translateX(-50%); top:20px; font-size:18px; text-align:center; }
+    small { opacity:0.8; display:block; font-weight:400; margin-top:6px; font-size:12px; }
+  </style>
 </head>
 <body>
-<h1>hi welcome to scienceurdone</h1>
-<p>this is my cool website</p>
+  <div id="ui">
+    Score: <span id="score">0</span><br>
+    Lives: <span id="lives">3</span>
+    <small>arrows or a/d to move • space to shoot</small>
+  </div>
+  <div id="message"></div>
+  <div class="wrap">
+    <canvas id="game" width="480" height="640"></canvas>
+  </div>
+
+<script>
+/*
+  Simple top-down shooter
+  - Save as index.html and upload
+  - Arrow keys/A-D move, Space shoots
+*/
+
+// --- setup ---
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const scoreEl = document.getElementById('score');
+const livesEl = document.getElementById('lives');
+const message = document.getElementById('message');
+
+let keys = {};
+let bullets = [];
+let enemies = [];
+let enemyTimer = 0;
+let spawnInterval = 90; // frames
+let frame = 0;
+let score = 0;
+let lives = 3;
+let gameOver = false;
+
+// player
+const player = {
+  x: W/2,
+  y: H - 60,
+  w: 34,
+  h: 22,
+  speed: 4,
+  cooldown: 0
+};
+
+// --- input ---
+window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if (e.key === ' ') e.preventDefault(); });
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+// --- helpers ---
+function rectsOverlap(a,b){
+  return a.x < b.x + b.w &&
+         a.x + a.w > b.x &&
+         a.y < b.y + b.h &&
+         a.y + a.h > b.y;
+}
+
+function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+
+// --- game actions ---
+function shoot(){
+  if (player.cooldown > 0) return;
+  bullets.push({ x: player.x + player.w/2 - 3, y: player.y - 8, w:6, h:12, speed:7 });
+  player.cooldown = 12; // frames between shots
+}
+
+function spawnEnemy(){
+  // basic enemy variations
+  const w = 34;
+  const h = 24;
+  const x = Math.random() * (W - w);
+  const speed = 1.2 + Math.random() * 1.6;
+  enemies.push({ x, y: -h, w, h, speed, hp: 1 + Math.floor(Math.random()*2) });
+}
+
+// --- update ---
+function update(){
+  if (gameOver) return;
+  frame++;
+
+  // player move
+  if (keys['arrowleft'] || keys['a']) player.x -= player.speed;
+  if (keys['arrowright'] || keys['d']) player.x += player.speed;
+  player.x = clamp(player.x, 6, W - player.w - 6);
+
+  // shooting
+  if ((keys[' '] || keys['space']) || keys['k']) shoot(); // 'k' optional
+  if (player.cooldown > 0) player.cooldown--;
+
+  // bullets
+  for (let i = bullets.length-1; i >= 0; i--){
+    bullets[i].y -= bullets[i].speed;
+    if (bullets[i].y + bullets[i].h < 0) bullets.splice(i,1);
+  }
+
+  // spawn enemies
+  enemyTimer++;
+  if (enemyTimer >= spawnInterval){
+    spawnEnemy();
+    enemyTimer = 0;
+    // slowly increase difficulty
+    if (spawnInterval > 35 && frame % 600 === 0) spawnInterval -= 5;
+  }
+
+  // enemies move
+  for (let i = enemies.length-1; i >= 0; i--){
+    const e = enemies[i];
+    e.y += e.speed;
+
+    // enemy hits player
+    if (rectsOverlap(e, player)){
+      enemies.splice(i,1);
+      loseLife();
+      continue;
+    }
+
+    // enemy off screen
+    if (e.y > H + 40) {
+      enemies.splice(i,1);
+      continue;
+    }
+
+    // bullet hit enemy
+    for (let b = bullets.length-1; b >= 0; b--){
+      if (rectsOverlap(bullets[b], e)){
+        bullets.splice(b,1);
+        e.hp--;
+        if (e.hp <= 0){
+          score += 10;
+          enemies.splice(i,1);
+        }
+        break;
+      }
+    }
+  }
+
+  // update UI
+  scoreEl.innerText = score;
+  livesEl.innerText = lives;
+
+  // check game over
+  if (lives <= 0 && !gameOver) endGame();
+}
+
+function loseLife(){
+  lives--;
+  if (lives > 0) {
+    // brief flash message
+    message.innerText = 'you got hit! press r to restart if you want';
+    setTimeout(()=> message.innerText = '', 1400);
+  }
+}
+
+function endGame(){
+  gameOver = true;
+  message.innerHTML = `game over<br>score: ${score}<br>press r to restart`;
+}
+
+// --- render ---
+function draw(){
+  // clear
+  ctx.clearRect(0,0,W,H);
+
+  // stars bg
+  for (let s=0; s<60; s++){
+    // pseudo-random but cheap: use frame and s for variation
+    const x = (s * 71 + frame*0.4) % W;
+    const y = ((s * 37 + frame*0.2) % H);
+    ctx.fillStyle = (s%7===0) ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.15)';
+    ctx.fillRect(x, y, 1,1);
+  }
+
+  // player (simple triangle ship)
+  ctx.save();
+  ctx.translate(player.x + player.w/2, player.y + player.h/2);
+  ctx.fillStyle = '#4ee';
+  ctx.beginPath();
+  ctx.moveTo(0, -player.h/2);
+  ctx.lineTo(player.w/2, player.h/2);
+  ctx.lineTo(-player.w/2, player.h/2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // bullets
+  ctx.fillStyle = '#ffd47f';
+  bullets.forEach(b => ctx.fillRect(b.x, b.y, b.w, b.h));
+
+  // enemies
+  enemies.forEach(e => {
+    // body
+    ctx.fillStyle = '#ff6b6b';
+    ctx.fillRect(e.x, e.y, e.w, e.h);
+    // eye or detail
+    ctx.fillStyle = '#330000';
+    ctx.fillRect(e.x + 8, e.y + 6, 6, 6);
+    // hp bar
+    ctx.fillStyle = '#222';
+    ctx.fillRect(e.x, e.y - 6, e.w, 4);
+    ctx.fillStyle = '#5af';
+    const hpWidth = (e.hp / 2) * e.w;
+    ctx.fillRect(e.x, e.y - 6, hpWidth, 4);
+  });
+}
+
+// --- main loop ---
+function loop(){
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+
+// --- restart and keys ---
+window.addEventListener('keydown', e=>{
+  if (e.key.toLowerCase() === 'r'){
+    restart();
+  }
+});
+
+function restart(){
+  score = 0;
+  lives = 3;
+  bullets = [];
+  enemies = [];
+  spawnInterval = 90;
+  enemyTimer = 0;
+  player.x = W/2;
+  player.cooldown = 0;
+  frame = 0;
+  gameOver = false;
+  message.innerText = '';
+}
+
+// small mobile/touch hint: tap left or right sides to move and tap top to shoot
+canvas.addEventListener('touchstart', function(e){
+  e.preventDefault();
+  const t = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  const x = t.clientX - rect.left;
+  if (x < W/2) keys['arrowleft'] = true; else keys['arrowright'] = true;
+  // quick shoot
+  shoot();
+});
+canvas.addEventListener('touchend', function(e){
+  keys['arrowleft'] = false; keys['arrowright'] = false;
+});
+
+// prevent spacebar page scroll
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') e.preventDefault();
+});
+</script>
 </body>
 </html>
